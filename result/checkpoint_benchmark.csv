@@ -1,0 +1,5 @@
+depth,checkpoint_every,steps_per_top_segment,n_steps,num_ptl,forward_time_s,forward_peak_mb,grad_time_s,grad_peak_mb,xla_original_peak_gb,xla_reduced_peak_gb
+0,10,1000,1000,200,0.0415,1776.89,0.6033,1776.89,17.52,17.52
+1,10,10,1000,200,0.0371,1785.12,0.5935,1785.12,,
+2,10,100,1000,200,0.0355,1802.64,0.6628,1802.64,,
+3,10,1000,1000,200,0.0377,1815.71,0.6596,1815.71,,

@@ -1,0 +1,54 @@
+[
+  {
+    "depth": 0,
+    "checkpoint_every": 10,
+    "steps_per_top_segment": 1000,
+    "n_steps": 1000,
+    "num_ptl": 200,
+    "forward_time_s": 0.0415,
+    "forward_peak_mb": 1776.89,
+    "grad_time_s": 0.6033,
+    "grad_peak_mb": 1776.89,
+    "xla_original_peak_gb": 17.52,
+    "xla_reduced_peak_gb": 17.52
+  },
+  {
+    "depth": 1,
+    "checkpoint_every": 10,
+    "steps_per_top_segment": 10,
+    "n_steps": 1000,
+    "num_ptl": 200,
+    "forward_time_s": 0.0371,
+    "forward_peak_mb": 1785.12,
+    "grad_time_s": 0.5935,
+    "grad_peak_mb": 1785.12,
+    "xla_original_peak_gb": null,
+    "xla_reduced_peak_gb": null
+  },
+  {
+    "depth": 2,
+    "checkpoint_every": 10,
+    "steps_per_top_segment": 100,
+    "n_steps": 1000,
+    "num_ptl": 200,
+    "forward_time_s": 0.0355,
+    "forward_peak_mb": 1802.64,
+    "grad_time_s": 0.6628,
+    "grad_peak_mb": 1802.64,
+    "xla_original_peak_gb": null,
+    "xla_reduced_peak_gb": null
+  },
+  {
+    "depth": 3,
+    "checkpoint_every": 10,
+    "steps_per_top_segment": 1000,
+    "n_steps": 1000,
+    "num_ptl": 200,
+    "forward_time_s": 0.0377,
+    "forward_peak_mb": 1815.71,
+    "grad_time_s": 0.6596,
+    "grad_peak_mb": 1815.71,
+    "xla_original_peak_gb": null,
+    "xla_reduced_peak_gb": null
+  }
+]

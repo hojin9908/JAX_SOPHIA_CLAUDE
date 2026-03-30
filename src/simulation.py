@@ -278,3 +278,123 @@ def simulate_final(pos_ptl: jax.Array, vel_ptl: jax.Array,
     final_carry, _ = lax.scan(segment_fn, init_carry, jnp.arange(n_segments))
     final_pos, final_vel = final_carry[0], final_carry[1]
     return final_pos, final_vel
+
+
+def _make_recursive_segment_fn(step_fn, checkpoint_every: int, depth: int):
+    """Build a recursively checkpointed segment function.
+
+    Returns fn(carry, start_idx) -> (carry, None) that processes
+    checkpoint_every^depth steps starting at global step index start_idx.
+
+    Args:
+        step_fn: single-step function (carry, step_idx) -> (carry, None)
+        checkpoint_every: branching factor at each level
+        depth: number of checkpointing levels (>= 1)
+
+    Levels:
+        depth=1  — runs checkpoint_every leaf steps with @jax.checkpoint
+        depth=k  — splits into checkpoint_every sub-segments of depth k-1,
+                   wrapping each sub-call with @jax.checkpoint
+    """
+    if depth == 1:
+        @jax.checkpoint
+        def fn(carry, start_idx):
+            local_indices = start_idx + jnp.arange(checkpoint_every)
+            def inner(c, idx):
+                new_c, _ = step_fn(c, idx)
+                return new_c, None
+            carry, _ = lax.scan(inner, carry, local_indices)
+            return carry, None
+        return fn
+    else:
+        steps_per_sub = int(checkpoint_every ** (depth - 1))
+        sub_fn = _make_recursive_segment_fn(step_fn, checkpoint_every, depth - 1)
+
+        @jax.checkpoint
+        def fn(carry, start_idx):
+            sub_starts = start_idx + jnp.arange(checkpoint_every) * steps_per_sub
+            carry, _ = lax.scan(sub_fn, carry, sub_starts)
+            return carry, None
+        return fn
+
+
+def simulate_final_recursive(
+        pos_ptl: jax.Array, vel_ptl: jax.Array,
+        mass_ptl: jax.Array, pos_bnd: jax.Array,
+        mass_bnd: jax.Array, *,
+        h: float, g: float, dt: float, rho0: float, c0: float,
+        gamma: float, n_steps: int, shepard_step: int,
+        checkpoint_every: int = 10,
+        checkpoint_depth: int = 1) -> tuple[jax.Array, jax.Array]:
+    """Run simulation with configurable recursive gradient checkpointing.
+
+    Memory vs. compute trade-off:
+        depth=0  — no checkpointing; O(n_steps) backward memory, 1x compute
+        depth=1  — equivalent to simulate_final; O(n_steps/c) memory, ~2x compute
+        depth=k  — k-level nesting; O(k * n_steps^(1/(k+1))) memory, ~(k+1)x compute
+
+    where c = checkpoint_every.
+
+    n_steps must be divisible by checkpoint_every^checkpoint_depth (for depth>0).
+
+    Args:
+        pos_ptl: [num_ptl, 2] initial particle positions
+        vel_ptl: [num_ptl, 2] initial particle velocities
+        mass_ptl: [num_ptl] particle masses
+        pos_bnd: [num_bnd, 2] boundary positions (fixed)
+        mass_bnd: [num_bnd] boundary masses
+        h: smoothing length
+        g: gravitational acceleration
+        dt: time step
+        rho0: reference density
+        c0: speed of sound
+        gamma: EOS stiffness parameter
+        n_steps: total simulation steps
+        shepard_step: recompute Shepard filter every this many steps
+        checkpoint_every: branching factor at each checkpointing level
+        checkpoint_depth: number of recursive checkpointing levels (0 = none)
+
+    Returns:
+        final_pos: [num_ptl, 2] final particle positions
+        final_vel: [num_ptl, 2] final particle velocities
+    """
+    n_ptl = pos_ptl.shape[0]
+    rho_ptl = jnp.full(n_ptl, rho0)
+    rho_bnd = jnp.full(pos_bnd.shape[0], rho0)
+
+    ptl_filter, bnd_filter = _compute_shepard(
+        pos_ptl, pos_bnd, mass_ptl, mass_bnd, rho_ptl, rho_bnd, h)
+
+    init_carry = (pos_ptl, vel_ptl, rho_ptl, rho_bnd, ptl_filter, bnd_filter)
+
+    step_fn = _make_step_fn(pos_bnd, mass_ptl, mass_bnd,
+                            h=h, g=g, dt=dt, rho0=rho0, c0=c0,
+                            gamma=gamma, shepard_step=shepard_step,
+                            accumulate_state=False)
+
+    if checkpoint_depth == 0:
+        # No checkpointing: plain scan over all steps
+        def plain_step(carry, idx):
+            new_c, _ = step_fn(carry, idx)
+            return new_c, None
+        final_carry, _ = lax.scan(plain_step, init_carry, jnp.arange(n_steps))
+    else:
+        steps_per_top = int(checkpoint_every ** checkpoint_depth)
+        assert n_steps % steps_per_top == 0, (
+            f"n_steps ({n_steps}) must be divisible by "
+            f"checkpoint_every^checkpoint_depth = {checkpoint_every}^{checkpoint_depth} = {steps_per_top}")
+        n_top = n_steps // steps_per_top
+
+        seg_fn = _make_recursive_segment_fn(step_fn, checkpoint_every, checkpoint_depth)
+
+        # Pass global start indices directly so step_fn receives correct step numbers
+        top_starts = jnp.arange(n_top) * steps_per_top
+
+        def outer_step(carry, start_idx):
+            carry, _ = seg_fn(carry, start_idx)
+            return carry, None
+
+        final_carry, _ = lax.scan(outer_step, init_carry, top_starts)
+
+    final_pos, final_vel = final_carry[0], final_carry[1]
+    return final_pos, final_vel
